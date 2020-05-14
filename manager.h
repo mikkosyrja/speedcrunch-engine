@@ -21,7 +21,6 @@
 #define MANAGER_H
 
 #include <QObject>
-#include <QString>
 #include <QStringList>
 #include <QDebug>
 #include <QClipboard>
@@ -32,12 +31,15 @@
 #include "core/constants.h"
 #include "math/units.h"
 
+#include "keypad.h"
+
+//! Manager class.
 class Manager : public QObject
 {
 	Q_OBJECT
 
 public:
-	Manager();
+	explicit Manager(QObject* parent = nullptr);
 
 	Q_INVOKABLE void saveSession();
 
@@ -64,6 +66,8 @@ public:
 	Q_INVOKABLE bool getSessionSave() const;
 	Q_INVOKABLE void setClickInsert(bool click);
 	Q_INVOKABLE bool getClickInsert() const;
+	Q_INVOKABLE void setHapticFeedback(bool haptic);
+	Q_INVOKABLE bool getHapticFeedback() const;
 
 	Q_INVOKABLE void clearHistory(int index);
 
@@ -77,15 +81,26 @@ public:
 	Q_INVOKABLE void setClipboard(const QString& text) const;
 	Q_INVOKABLE QString getClipboard() const;
 
+	Q_INVOKABLE bool setKeyboard(const QString& name);
+	Q_INVOKABLE QString getKeyboard() const;
+	Q_INVOKABLE int getKeyboardIndex() const;
+	Q_INVOKABLE QString getKeyboards() const;
+
+	Q_INVOKABLE QSize getKeyboardSize(const QString& name) const;
+	Q_INVOKABLE QString getKeyScript(const QString& name, int row, int col) const;
+	Q_INVOKABLE bool getVirtualKeyboard(const QString& name) const;
+
 private:
 	bool checkRecent(const QString& name) const;
-	QString& translate(const char* context, QString& name) const;
 
 	Session* session;						//!< Current session.
 	Evaluator* evaluator;					//!< Expression evaluator.
 	Settings* settings;						//!< Settings storage.
 	QClipboard* clipboard;					//!< System clipboard.
-	QTranslator translator;					//!< Language translator.
+
+	QTranslator engineTranslator;			//!< Engine translator.
+	QTranslator backupTranslator;			//!< UI backup translator.
+	QTranslator localeTranslator;			//!< UI locale translator.
 
 	QStringList recent;						//!< Recent functions.
 	QStringList identifiers;				//!< Function identifiers.
@@ -93,6 +108,10 @@ private:
 
 	QList<Unit> units;						//!< Available units.
 	QList<Constant> constants;				//!< Available constants.
+
+	QJsonParseError parseError;				//!< Parse error handling.
+	QMap<QString, QString> keyboards;		//!< Keyboard names and paths.
+	Keyboard keyboard;						//!< Current keyboard.
 };
 
 #endif

@@ -23,14 +23,21 @@
 #include <QFile>
 #include <QDir>
 #include <QGuiApplication>
-#include <QJsonDocument>
+
+#ifdef Q_OS_ANDROID
+#include <QStandardPaths>
+#include <QtAndroid>
+#endif
 
 #include "core/session.h"
 #include "core/functions.h"
 #include "core/numberformatter.h"
 
-//! Default constructor.
-Manager::Manager()
+//! Constructor.
+/*!
+	\param parent		Optional parent.
+*/
+Manager::Manager(QObject* parent) : QObject(parent)
 {
 	session = new Session;
 
@@ -45,7 +52,11 @@ Manager::Manager()
 
 	QDir directory;		// configuration path
 	QString configpath = Settings::getConfigPath();
+#ifdef Q_OS_ANDROID
+	directory.mkpath(configpath);	// /data/data/org.syrja.speedcrunch/files/settings/libandroid-speedcrunch.so
+#else
 	directory.mkpath(configpath);
+#endif
 
 	if ( settings->sessionSave )
 	{
@@ -79,24 +90,31 @@ Manager::Manager()
 
 	clipboard = QGuiApplication::clipboard();
 
-//	translator.load("/usr/share/harbour-speedcrunch/locale/speedcrunch-fi");
+	QLocale locale;
+#ifdef Q_OS_ANDROID
+	if ( engineTranslator.load(locale, ":/locale/speedcrunch.") )
+		QGuiApplication::installTranslator(&engineTranslator);
+	if ( backupTranslator.load(":/locale/mobile.en_GB.qm") )
+		QGuiApplication::installTranslator(&backupTranslator);
+	if ( localeTranslator.load(locale, ":/locale/mobile.") )
+		QGuiApplication::installTranslator(&localeTranslator);
+#else
+	if ( engineTranslator.load(locale, "/usr/share/harbour-speedcrunch/locale/speedcrunch.") )
+		QGuiApplication::installTranslator(&engineTranslator);
+	if ( backupTranslator.load("/usr/share/harbour-speedcrunch/locale/mobile.en_GB.qm") )
+		QGuiApplication::installTranslator(&backupTranslator);
+	if ( localeTranslator.load(locale, "/usr/share/harbour-speedcrunch/locale/mobile.") )
+		QGuiApplication::installTranslator(&localeTranslator);
+#endif
+
+	FunctionRepo::instance()->retranslateText();
+	Constants::instance()->retranslateText();
 
 	identifiers = FunctionRepo::instance()->getIdentifiers();
 	for ( int index = 0; index < identifiers.count(); ++index )
 	{
 		if ( const Function* function = FunctionRepo::instance()->find(identifiers.at(index)) )
-		{
-			QString name = function->name();
-/*
-			if ( !translator.isEmpty() )
-			{
-				QString text = translator.translate("FunctionRepo", name.toStdString().c_str());
-				if ( !text.isEmpty() )
-					name = text;
-			}
-*/
-			functions.push_back(name);
-		}
+			functions.push_back(function->name());
 	}
 	functions.sort(Qt::CaseInsensitive);
 
@@ -107,6 +125,45 @@ Manager::Manager()
 	constants = Constants::instance()->list();
 	std::sort(constants.begin(), constants.end(), [](const Constant& first, const Constant& second)
 		{ return first.name.compare(second.name, Qt::CaseInsensitive) < 0; });
+
+#ifdef Q_OS_ANDROID
+	QString datapath = QString("%1/%2").arg(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation),
+		"Android/data/org.syrja.speedcrunch/files");
+	QtAndroid::requestPermissions(QStringList("android.permission.WRITE_EXTERNAL_STORAGE"), [](QtAndroid::PermissionResultMap result)
+	{
+		QString keyboardpath = QString("%1/%2").arg(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation),
+			"Android/data/org.syrja.speedcrunch/files/keyboards");	//## lambda capture does not work?
+		if ( result["android.permission.WRITE_EXTERNAL_STORAGE"] == QtAndroid::PermissionResult::Granted )
+			QDir().mkpath(keyboardpath);
+	});
+#endif
+
+	std::vector<QString> paths;
+#ifdef Q_OS_ANDROID
+	paths.push_back(datapath + "/keyboards/");
+	paths.push_back(":/keyboards/");
+#else
+	paths.push_back(configpath + "/keyboards/");
+	paths.push_back("/usr/share/harbour-speedcrunch/keyboards/");
+#endif
+	for ( const auto& path : paths )
+	{
+		directory.setPath(path);
+		directory.setFilter(QDir::Files | QDir::Readable);
+		directory.setNameFilters(QStringList("*.json"));
+		const auto infos = directory.entryInfoList();
+		for ( const auto& info : infos )
+			keyboards.insert(info.completeBaseName(), info.absoluteFilePath());
+	}
+
+	auto iter = keyboards.find(settings->keyboard);
+#ifdef Q_OS_ANDROID
+	if ( iter == keyboards.end() || !keyboard.load(iter.value(), parseError) )
+		keyboard.load(":/keyboards/Current.json", parseError);
+#else
+	if ( iter == keyboards.end() || !keyboard.load(iter.value(), parseError) )
+		keyboard.load("/usr/share/harbour-speedcrunch/keyboards/Current.json", parseError);
+#endif
 }
 
 //! Save session on exit.
@@ -152,7 +209,7 @@ void Manager::saveSession()
 //! Auto calculate expression.
 /*!
 	\param input		Expression.
-	\return				Result string.
+	\return				Result string or NaN for error.
 */
 QString Manager::autoCalc(const QString& input)
 {
@@ -177,11 +234,11 @@ QString Manager::autoFix(const QString& input)
 //! Calculate expression.
 /*!
 	\param input		Expression.
-	\return				Result string.
+	\return				Result string or NaN for error.
 */
 QString Manager::calculate(const QString& input)
 {
-	const QString expression = evaluator->autoFix(input);
+	QString expression = evaluator->autoFix(input);
 	evaluator->setExpression(expression);
 	Quantity quantity = evaluator->evalUpdateAns();
 	if ( !evaluator->error().isEmpty() )
@@ -228,11 +285,15 @@ QString Manager::getHistory(int)
 {
 	QString result = "[";
 	for ( const auto& entry : session->historyToList() )
-		result += "{expression:\"" + entry.expr() + "\",value:\"" + NumberFormatter::format(entry.result()) + "\"},";
+	{
+		QString expression = entry.expr();
+		expression.replace("\\", "\\\\");
+		result += "{expression:\"" + expression + "\",value:\"" + NumberFormatter::format(entry.result()) + "\"},";
+	}
 	return result += "]";
 }
 
-//! Get functions, constants and units.
+//! Get functions, constants and units as javacript array.
 /*!
 	\param filter		Filter string.
 	\param type			Function type (a, f, u, c, v).
@@ -257,11 +318,10 @@ QString Manager::getFunctions(const QString& filter, const QString& type, int)
 		if ( filter.isEmpty() || function->name().contains(filter, Qt::CaseInsensitive)
 			|| function->identifier().contains(filter, Qt::CaseInsensitive) )
 		{
-			QString name = function->name();
 			QString usage = function->identifier() + "(" + function->usage() + ")";
 			usage.remove("<sub>").remove("</sub>");
 			result += "{value:\"" + function->identifier() + "()\""
-				+ ",name:\"" + translate("FunctionRepo", name) + "\",usage:\"" + usage
+				+ ",name:\"" + function->name() + "\",usage:\"" + usage
 				+ "\",label:\"" + usage + "\",user:false," + "recent:" + (recent ? "true" : "false") + "},";
 		}
 	};
@@ -284,7 +344,7 @@ QString Manager::getFunctions(const QString& filter, const QString& type, int)
 		if ( filter.isEmpty() || unit.name.contains(filter, Qt::CaseInsensitive))
 		{
 			result += "{value:\"" + unit.name + "\", name:\"" + unit.name
-				+ "\",usage:\"\",label:\"" + unit.name + "\",user:false,"
+				+ R"(",usage:"",label:")" + unit.name + "\",user:false,"
 				+ "recent:" + (recent ? "true" : "false") + "},";
 		}
 	};
@@ -301,9 +361,8 @@ QString Manager::getFunctions(const QString& filter, const QString& type, int)
 		if ( filter.isEmpty() || constant.value.contains(filter, Qt::CaseInsensitive)
 			|| constant.name.contains(filter, Qt::CaseInsensitive))
 		{
-			QString name = constant.name;
-			result += "{value:\"" + constant.value + "\",name:\"" + translate("Constants", name)
-				+ "\",usage:\"\",label:\"" + constant.value + "\",user:false,"
+			result += "{value:\"" + constant.value + "\",name:\"" + constant.name
+				+ R"(",usage:"",label:")" + constant.value + "\",user:false,"
 				+ "recent:" + (recent ? "true" : "false") + "},";
 		}
 	};
@@ -322,7 +381,7 @@ QString Manager::getFunctions(const QString& filter, const QString& type, int)
 		{
 			QString value = DMath::format(variable.value(), HNumber::Format::Fixed());
 			result += "{value:\"" + variable.identifier() + "\",name:\"" + variable.identifier()
-				+ "\",usage:\"\",label:\"" + variable.identifier() + " = " + value
+				+ R"(",usage:"",label:")" + variable.identifier() + " = " + value
 				+ "\",user:true,recent:" + (recent ? "true" : "false") + "},";
 		}
 	};
@@ -470,6 +529,8 @@ void Manager::setResultFormat(const QString& format)
 	{
 		settings->resultFormat = format.at(0).toLatin1();
 		settings->save();
+
+		setKeyboard(settings->keyboard);
 	}
 }
 
@@ -517,6 +578,8 @@ void Manager::setComplexNumber(const QString& complex)
 	evaluator->initializeBuiltInVariables();
 	DMath::complexMode = settings->complexNumbers;
 	settings->save();
+
+	setKeyboard(settings->keyboard);
 }
 
 //! Get complex number mode.
@@ -536,7 +599,7 @@ QString Manager::getComplexNumber() const
 */
 void Manager::setFontSize(const QString& size)
 {
-	int pointsize = 10;		// m
+	int pointsize = 10;	// m
 	if ( size == "s" )
 		pointsize = 8;
 	else if ( size == "l" )
@@ -597,6 +660,29 @@ void Manager::setClickInsert(bool click)
 bool Manager::getClickInsert() const
 {
 	return settings->windowAlwaysOnTop;		//##
+}
+
+//! Set haptic feedback setting.
+/*!
+	\param haptic		Haptic feedback setting.
+*/
+void Manager::setHapticFeedback(bool haptic)
+{
+	settings->windowPositionSave = haptic;	//##
+	settings->save();
+}
+
+//! Get haptic feedback setting.
+/*!
+	\return				Haptic feedback setting.
+*/
+bool Manager::getHapticFeedback() const
+{
+#ifdef Q_OS_ANDROID
+	return false;
+#else
+	return settings->windowPositionSave;	//##
+#endif
 }
 
 //! Clear history item.
@@ -699,7 +785,115 @@ QString Manager::getClipboard() const
 	return clipboard->text();
 }
 
-//
+//! Set and load keyboard.
+/*!
+	\param name			Keyboard name.
+	return				True for success.
+*/
+bool Manager::setKeyboard(const QString& name)
+{
+	auto iter = keyboards.find(name);
+	if ( iter != keyboards.end() && keyboard.load(iter.value(), parseError) )
+	{
+		settings->keyboard = name;
+		settings->save();
+		return true;
+	}
+#ifdef Q_OS_ANDROID
+	keyboard.load(":/keyboards/Current.json", parseError);
+#else
+	keyboard.load("/usr/share/harbour-speedcrunch/keyboards/Current.json", parseError);
+#endif
+	return false;
+}
+
+//! Get current keyboard.
+/*!
+	\return				Keyboard name.
+*/
+QString Manager::getKeyboard() const
+{
+	return settings->keyboard;
+}
+
+//! Get current keyboard index.
+/*!
+	\return				Keyboard index.
+*/
+int Manager::getKeyboardIndex() const
+{
+	QStringList names = keyboards.keys();
+	return names.indexOf(settings->keyboard);
+}
+
+//! Get keyboard names as javacript array.
+/*!
+	\return				Keyboard names.
+*/
+QString Manager::getKeyboards() const
+{
+	QStringList names = keyboards.keys();
+	QString result = "[";
+	for ( const auto& name : names )
+		result += "\"" + name + "\",";
+	return result + "]";
+}
+
+//! Get keyboard size.
+/*!
+	\param name			Keyboard panel name.
+	\return				Keyboard size.
+*/
+QSize Manager::getKeyboardSize(const QString& name) const
+{
+	if ( name == "leftpad" || name == "rightpad"  || name == "portrait" )
+	{
+		if ( size_t rows = keyboard.leftpad.keys.size() )
+		{
+			size_t cols = keyboard.leftpad.keys[0].size();
+			return QSize(static_cast<int>(cols), static_cast<int>(rows));
+		}
+		return QSize(5, 5);
+	}
+	if ( name == "landscape" )
+	{
+		if ( size_t rows = keyboard.landscape.keys.size() )
+		{
+			size_t cols = keyboard.landscape.keys[0].size();
+			return QSize(static_cast<int>(cols), static_cast<int>(rows));
+		}
+		return QSize(10, 3);
+	}
+	return QSize(1, 1);		// editkey
+}
+
+//! Get QML script for a key.
+/*!
+	\param name			Keyboard panel name.
+	\param row			Row index.
+	\param col			Column index.
+	\return				QML script string.
+*/
+QString Manager::getKeyScript(const QString& name, int row, int col) const
+{
+	return keyboard.getKeyScript(name, row, col);
+}
+
+//! Get virtual keyboard state for a given panel.
+/*!
+	\param name			Keyboard panel name.
+	\return				True if virtual keyboard is allowed with panel.
+*/
+bool Manager::getVirtualKeyboard(const QString& name) const
+{
+	return keyboard.getVirtualKeyboard(name);
+}
+
+//! Check if the name is in recent list.
+/*!
+	\param name			Checked name.
+	\return				True if found from recent list.
+*/
 bool Manager::checkRecent(const QString& name) const
 {
 	for ( const auto& item : recent )
@@ -709,16 +903,3 @@ bool Manager::checkRecent(const QString& name) const
 	}
 	return false;
 }
-
-//
-QString& Manager::translate(const char* context, QString& name) const
-{
-	if ( !translator.isEmpty() )
-	{
-		QString text = translator.translate(context, name.toStdString().c_str());
-		if ( !text.isEmpty() )
-			name = text;
-	}
-	return name;
-}
-
