@@ -1,6 +1,5 @@
 // This file is part of the SpeedCrunch project
-// Copyright (C) 2013 @heldercorreia
-// Copyright (C) 2015 Pol Welter <polwelter@gmail.com>
+// Copyright (C) 2014 @heldercorreia
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -17,17 +16,20 @@
 // the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
 // Boston, MA 02110-1301, USA.
 
-#ifndef CORE_NUMBERFORMATTER_H
-#define CORE_NUMBERFORMATTER_H
+#include "core/pageserver.h"
 
-#include "quantity.h"
+QString PageServer::getPageContent(const QString& id)
+{
+    PageMaker maker = m_toc.value(id);
+    if (!maker)
+        return QString();
+    m_currentPageID = id;
+    return maker();
+}
 
-#include <QtCore/QString>
-
-struct NumberFormatter {
-    static QString format(HNumber &num) { return format(Quantity(num)); }
-    static QString format(CNumber &num) { return format(Quantity(num)); }
-    static QString format(Quantity);
-};
-
-#endif
+QString PageServer::getCurrentPageContent()
+{
+    if (m_currentPageID.isNull())
+        return QString();
+    return getPageContent(m_currentPageID);
+}

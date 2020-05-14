@@ -1,6 +1,5 @@
 // This file is part of the SpeedCrunch project
-// Copyright (C) 2013 @heldercorreia
-// Copyright (C) 2015 Pol Welter <polwelter@gmail.com>
+// Copyright (C) 2013, 2014 @heldercorreia
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -17,17 +16,20 @@
 // the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
 // Boston, MA 02110-1301, USA.
 
-#ifndef CORE_NUMBERFORMATTER_H
-#define CORE_NUMBERFORMATTER_H
+#ifndef CORE_BOOK_H
+#define CORE_BOOK_H
 
-#include "quantity.h"
+#include "core/pageserver.h"
 
-#include <QtCore/QString>
+class Book : public PageServer {
+    Q_OBJECT
 
-struct NumberFormatter {
-    static QString format(HNumber &num) { return format(Quantity(num)); }
-    static QString format(CNumber &num) { return format(Quantity(num)); }
-    static QString format(Quantity);
+public:
+    explicit Book(QObject* parent = 0) : PageServer(parent) { createPages(); }
+    virtual void createPages();
+
+private:
+    Q_DISABLE_COPY(Book)
 };
 
-#endif
+#endif // CORE_BOOK_H

@@ -132,6 +132,7 @@ public:
     static bool isSeparatorChar(const QChar&);
     static bool isRadixChar(const QChar&);
     static QString fixNumberRadix(const QString&);
+    static QString fixSexagesimal(const QString&, QString& unit);
 
     QString autoFix(const QString&);
     QString dump();
@@ -164,8 +165,6 @@ public:
     void unsetUserFunction(const QString&);
     void unsetAllUserFunctions();
     bool hasUserFunction(const QString&) const;
-
-	const QString& getAssignId() const { return m_assignId; }
 
 protected:
     void compile(const Tokens&);
