@@ -43,7 +43,11 @@
 
 //TODO should go into a separate format file
 // default scale for fall back in formatting
+#ifdef SPEEDCRUNCH_MOBILE
+#define HMATH_MAX_SHOWN 12
+#else
 #define HMATH_MAX_SHOWN 20
+#endif
 #define HMATH_BIN_MAX_SHOWN ((33219*HMATH_MAX_SHOWN)/10000 + 1)
 #define HMATH_OCT_MAX_SHOWN ((11073*HMATH_MAX_SHOWN)/10000 + 1)
 #define HMATH_HEX_MAX_SHOWN ((8305*HMATH_MAX_SHOWN)/10000 + 1)

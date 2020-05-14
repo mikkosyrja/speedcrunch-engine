@@ -26,7 +26,11 @@
 #include <QDir>
 #include <QLocale>
 #include <QSettings>
+#ifdef SPEEDCRUNCH_MOBILE
+#include <QGuiApplication>
+#else
 #include <QApplication>
+#endif
 #include <QFont>
 #include <QtCore/QStandardPaths>
 
