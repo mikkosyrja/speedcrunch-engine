@@ -60,7 +60,7 @@ public:
 
     static const Token null;
 
-    Token(Type = stxUnknown, const QString& = QString::null, int pos = -1,
+    Token(Type = stxUnknown, const QString& = QString(), int pos = -1,
           int size = -1);
     Token(const Token&);
 
@@ -165,8 +165,6 @@ public:
     void unsetUserFunction(const QString&);
     void unsetAllUserFunctions();
     bool hasUserFunction(const QString&) const;
-
-    const QString& getAssignId() const { return m_assignId; }
 
 protected:
     void compile(const Tokens&);
