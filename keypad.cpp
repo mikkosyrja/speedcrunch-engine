@@ -1,6 +1,6 @@
 // This file is part of the SpeedCrunch project
 // Copyright (C) 2014 @qwazix
-// Copyright (C) 2018 Mikko Syrjä
+// Copyright (C) 2018-2022 Mikko Syrjä
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
